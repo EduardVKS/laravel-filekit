@@ -1,0 +1,5 @@
+/tests export-ignore
+/.github export-ignore
+/.idea export-ignore
+/phpunit.xml* export-ignore
+/stubs export-ignore

@@ -1,0 +1,54 @@
+{
+    "name": "eduvl/laravel-filekit",
+    "description": "Typed file upload services for Laravel (images, audio, video, generic files) with signed Urls",
+    "type": "library",
+    "require": {
+        "php": "^8.2 || ^8.3 || ^8.4",
+        "illuminate/support": ">=10.0 <13.0",
+        "illuminate/filesystem": ">=10.0 <13.0",
+        "illuminate/contracts": ">=10.0 <13.0",
+        "illuminate/routing": ">=10.0 <13.0",
+        "illuminate/http": ">=10.0 <13.0",
+        "guzzlehttp/guzzle": "^7.8",
+        "ext-fileinfo": "*"
+    },
+    "license": "MIT",
+    "keywords": ["laravel", "upload", "file", "image", "storage"],
+    "autoload": {
+        "psr-4": {
+            "EduVl\\FileKit\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Eduard Vlasiuk",
+            "homepage": "https://github.com/EduardVKS"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EduVl\\FileKit\\FileKitServiceProvider"
+            ],
+            "aliases": {
+                "FileKit": "EduVl\\FileKit\\Facades\\FileKit"
+            }
+        }
+    },
+    "require-dev": {
+        "orchestra/testbench": "^9.0"
+    },
+    "archive": {
+        "exclude": [
+            "/.github",
+            "/tests",
+            "/stubs",
+            "/.idea",
+            "/phpunit.xml*"
+        ]
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "prefer-stable": true
+}
