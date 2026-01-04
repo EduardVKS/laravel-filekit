@@ -48,7 +48,7 @@ class UploadManager
         return new class (
             $this->storage->disk($this->config['disk']),
             $this->config['base_dirs']['files'],
-            $this->config['base_dirs']['files'],
+            $this->config['allowed']['files'],
             (int) $this->config['max_size_bytes']
         ) extends FileService {};
     }
