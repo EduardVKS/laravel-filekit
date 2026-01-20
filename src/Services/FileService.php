@@ -80,13 +80,14 @@ class FileService
     }
 
     /**
-     * Переместить/переименовать файл внутри текущего диска.
+     * Move/rename a file within the current disk.
      *
-     * @param  string      $from          Текущий путь (относительно диска)
-     * @param  string|null $toDirectory   Новая директория (относительно $baseDir). Если null — остаётся текущая директория $from
-     * @param  string|null $toFilename    Новое имя файла. Если null — сохраняем исходное имя
-     * @param  bool        $overwrite     Перезаписывать, если файл уже существует по месту назначения
+     * @param string $from Current path (relative to disk)
+     * @param string|null $toDirectory New directory (relative to $baseDir). If null, the current $from directory remains.
+     * @param string|null $toFilename New file name. If null, the original name is kept.
+     * @param bool $overwrite Overwrite if the file already exists at the destination.
      * @return UploadResult
+     * @throws \Throwable
      */
     public function move(string $from, ?string $toDirectory = null, ?string $toFilename = null, bool $overwrite = false): UploadResult
     {
@@ -96,9 +97,11 @@ class FileService
             throw new \RuntimeException("Source file '{$from}' does not exist.");
         }
 
-        // Куда перемещаем: если директория не задана — оставляем текущую
+        $currentDir = dirname($from);
+        $currentDir = $currentDir === '.' ? '' : trim($currentDir, '/') . '/';
+
         $destDir = $toDirectory === null
-            ? (trim(dirname($from), '/') . '/')
+            ? $currentDir
             : $this->safeJoin($this->baseDir, $toDirectory);
 
         $destFilename = $toFilename ? $this->sanitizeFilename($toFilename) : basename($from);
@@ -108,12 +111,10 @@ class FileService
             throw new \RuntimeException("Destination '{$to}' already exists.");
         }
 
-        // Если перезаписываем — удалим существующий файл заранее, чтобы избежать ошибок
         if ($overwrite && $this->disk->exists($to)) {
             $this->disk->delete($to);
         }
 
-        // Пытаемся выполнить "native" move; если адаптер не умеет — копируем и удаляем
         try {
             if (method_exists($this->disk, 'move')) {
                 $moved = $this->disk->move($from, $to);
@@ -126,7 +127,6 @@ class FileService
                 $this->disk->delete($from);
             }
         } catch (\Throwable $e) {
-            // Бест-эффорт откат, если вдруг остались "обрывки"
             if ($this->disk->exists($to) && !$this->disk->exists($from)) {
                 try { $this->disk->move($to, $from); } catch (\Throwable) {}
             }
@@ -147,13 +147,82 @@ class FileService
     }
 
     /**
-     * Заменить старый файл новым: грузим новый, удаляем старый, при неудачной очистке — откат.
+     * Copy a file within the current disk.
      *
-     * @param  string|null              $oldPath    Путь старого файла (если null — просто загрузка нового)
-     * @param  string|UploadedFile      $newFile    Источник нового файла (как и в upload)
-     * @param  string|null              $filename   Имя для нового файла (если null — UUID + расширение)
-     * @param  string|null              $directory  Директория (относительно $baseDir). Если null — попытка взять ту же директорию, где лежал $oldPath
-     * @param  bool                     $failIfRemoveFails  Бросать ли ошибку, если удаление старого файла не удалось (по умолчанию true)
+     * @param string $from Current path (relative to disk)
+     * @param string|null $toDirectory New directory (relative to $baseDir). If null, the current $from directory remains.
+     * @param string|null $toFilename New file name. If null, the original name is kept.
+     * @param bool $overwrite
+     * @return UploadResult
+     */
+    public function copy(string $from, ?string $toDirectory = null, ?string $toFilename = null, bool $overwrite = false): UploadResult
+    {
+        $from = ltrim($from, '/');
+
+        if (!$this->disk->exists($from)) {
+            throw new \RuntimeException("Source file '{$from}' does not exist.");
+        }
+
+        $bytes = $this->disk->get($from);
+        $mime  = $this->guessBufferMime($bytes);
+
+        $this->assertAllowed($mime);
+        $ext = $this->mapExt($mime);
+
+        $currentDir = dirname($from);
+        $currentDir = $currentDir === '.' ? '' : trim($currentDir, '/') . '/';
+
+        $destDir = $toDirectory === null
+            ? $currentDir
+            : $this->safeJoin($this->baseDir, $toDirectory);
+
+        $destFilename = $toFilename ? $this->sanitizeFilename($toFilename) : (Str::uuid()->toString() . '.' . $ext);
+
+        // опционально: если дали имя без расширения — дописать
+        if (pathinfo($destFilename, PATHINFO_EXTENSION) === '') {
+            $destFilename .= '.' . $ext;
+        }
+
+        if (strtolower(pathinfo($destFilename, PATHINFO_EXTENSION)) !== strtolower($ext)) {
+            throw new InvalidMimeException("Filename extensions must be .$ext form mime $mime");
+        }
+
+        $to = trim($destDir . $destFilename, '/');
+
+        if (!$overwrite && $this->disk->exists($to)) {
+            throw new \RuntimeException("Destination '{$to}' already exists.");
+        }
+
+        if ($overwrite && $this->disk->exists($to)) {
+            $this->disk->delete($to);
+        }
+
+        if (method_exists($this->disk, 'copy')) {
+            $copied = $this->disk->copy($from, $to);
+            if ($copied === false) {
+                $this->disk->put($to, $bytes);
+            }
+        } else {
+            $this->disk->put($to, $bytes);
+        }
+
+        return new UploadResult(
+            path: $to,
+            url: $this->url($to),
+            disk: $this->diskName(),
+            mime: $mime,
+            size: strlen($bytes)
+        );
+    }
+
+    /**
+     * Replace the old file with a new one: upload the new one, delete the old one, and if the cleaning fails, roll back.
+     *
+     * @param string|null $oldPath Path to the old file (if null, simply upload a new one)
+     * @param string|UploadedFile $newFile Source of the new file (as in upload)
+     * @param string|null $filename Name for the new file (if null, UUID + extension)
+     * @param string|null $directory Directory (relative to $baseDir). If null, attempt to use the same directory as $oldPath
+     * @param bool $failIfRemoveFails Whether to throw an error if deleting the old file fails (defaults to true)
      * @return UploadResult
      */
     public function change(?string $oldPath, string|UploadedFile $newFile, ?string $filename = null, ?string $directory = null, bool $failIfRemoveFails = true): UploadResult
@@ -267,9 +336,14 @@ class FileService
 
     protected function safeJoin(string $base, string $segment): string
     {
+        $base = trim($base, '/');
         $s = trim($segment, '/');
-        if($s === '') return $base;
-        if(str_contains($s, '..') || str_starts_with($s, '/')) {
+
+        if ($s === '') {
+            return $base === '' ? '' : $base . '/';
+        }
+
+        if (str_contains($s, '..') || str_starts_with($s, '/') || str_contains($s, '\\')) {
             throw new UnsafePathException('Unsafe directory segment.');
         }
         return trim($base . '/' . $s . '/');

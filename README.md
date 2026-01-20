@@ -214,6 +214,33 @@ $res->size; // bytes
 FileKit::files()->remove($res->path); // true (also true if already missing)
 ```
 
+### Moving and Copying Files
+
+You can move (rename) or copy files inside the same storage disk.
+
+```php
+use EduVl\FileKit\Services\FileService;
+
+/** @var FileService $files */
+$files = app(FileService::class);
+
+$result = $files->move(
+    from: 'uploads/tmp/photo.jpg',
+    toDirectory: 'avatars',
+    toFilename: 'user-10.jpg',
+    overwrite: true
+);
+
+$result = $files->copy(
+    from: 'uploads/tmp/photo.jpg',
+    toDirectory: 'avatars',
+    toFilename: 'user-10.jpg',
+    overwrite: true
+);
+
+echo $result->path; // avatars/user-10.jpg
+echo $result->url;  // public url or signed route
+
 ---
 
 <a id="signed-urls"></a>
